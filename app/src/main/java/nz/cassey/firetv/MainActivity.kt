@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.hardware.ConsumerIrManager
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
@@ -178,13 +179,13 @@ class MainActivity : Activity() {
         v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    private fun keyButton(label: String, keyCode: Int, accent: Boolean = false, repeat: Boolean = false, textSize: Float = 18f, shell: String? = null): Button {
+    private fun keyButton(label: String, keyCode: Int, accent: Boolean = false, repeat: Boolean = false, textSize: Float = 18f, shell: String? = null, irCmd: Int? = null): Button {
         val b = makeButton(label, accent, textSize)
         val cmdStr = shell ?: "input keyevent $keyCode"
         if (repeat) {
             val r = object : Runnable {
                 override fun run() {
-                    sendCmd(cmdStr, true)
+                    sendCmd(cmdStr, true, irCmd)
                     mainHandler.postDelayed(this, 130)
                 }
             }
@@ -193,7 +194,7 @@ class MainActivity : Activity() {
                     MotionEvent.ACTION_DOWN -> {
                         v.isPressed = true
                         haptic(v)
-                        sendCmd(cmdStr, false)
+                        sendCmd(cmdStr, false, irCmd)
                         mainHandler.postDelayed(r, 450)
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -204,7 +205,7 @@ class MainActivity : Activity() {
                 true
             }
         } else {
-            b.setOnClickListener { haptic(it); sendCmd(cmdStr, false) }
+            b.setOnClickListener { haptic(it); sendCmd(cmdStr, false, irCmd) }
         }
         return b
     }
@@ -300,8 +301,35 @@ class MainActivity : Activity() {
         return list.filter { tvIp(it).isNotBlank() }.ifEmpty { listOf(selected) }
     }
 
-    private fun sendCmd(cmd: String, droppable: Boolean) {
-        for (i in targets()) tvs[i].run(cmd, droppable)
+    private fun sendCmd(cmd: String, droppable: Boolean, irCmd: Int? = null) {
+        for (i in targets()) {
+            // TV 1 (Panasonic) volume goes out by infrared from the phone; the Fire TV can't change it
+            if (i == 0 && irCmd != null) sendIr(irCmd) else tvs[i].run(cmd, droppable)
+        }
+    }
+
+    private val irManager by lazy { getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager }
+
+    /** Panasonic (Kaseikyo) 48-bit code for the TH-P50V20Z, same codes as the IR Remote app. */
+    private fun sendIr(cmd: Int) {
+        val ir = irManager
+        if (ir == null || !ir.hasIrEmitter()) {
+            Toast.makeText(this, "This phone has no infrared blaster", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val bytes = intArrayOf(0x02, 0x20, 0x80, 0x00, cmd, 0x80 xor 0x00 xor cmd)
+        val l = ArrayList<Int>()
+        l.add(3456); l.add(1728)
+        for (b in bytes) for (i in 0..7) {
+            l.add(432)
+            l.add(if (((b shr i) and 1) == 1) 1296 else 432)
+        }
+        l.add(432); l.add(40000)
+        try {
+            ir.transmit(37000, l.toIntArray())
+        } catch (e: Exception) {
+            Toast.makeText(this, "Infrared failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun sendShell(cmd: String) {
@@ -430,11 +458,11 @@ class MainActivity : Activity() {
         // volume
         val vol = row(58)
         addTo(vol, keyButton("Vol –", 25, repeat = true,
-            shell = "cmd media_session volume --show --stream 3 --adj lower || input keyevent 25"))
+            shell = "cmd media_session volume --show --stream 3 --adj lower || input keyevent 25", irCmd = 0x21))
         addTo(vol, keyButton("Mute", 164,
-            shell = "cmd media_session volume --show --stream 3 --adj toggle-mute || input keyevent 164"))
+            shell = "cmd media_session volume --show --stream 3 --adj toggle-mute || input keyevent 164", irCmd = 0x32))
         addTo(vol, keyButton("Vol +", 24, repeat = true,
-            shell = "cmd media_session volume --show --stream 3 --adj raise || input keyevent 24"))
+            shell = "cmd media_session volume --show --stream 3 --adj raise || input keyevent 24", irCmd = 0x20))
         root.addView(vol)
 
         // apps
