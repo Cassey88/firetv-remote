@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -30,11 +31,14 @@ import dadb.AdbKeyPair
 import dadb.Dadb
 import org.json.JSONObject
 import java.io.File
+import java.net.Inet4Address
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 private const val ADB_PORT = 5555
@@ -175,6 +179,81 @@ class MainActivity : Activity() {
         return b
     }
 
+    // ---------------------------------------------------------------- auto detect
+
+    private fun localIpv4(): Inet4Address? {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val net = cm.activeNetwork ?: return null
+        val lp = cm.getLinkProperties(net) ?: return null
+        return lp.linkAddresses.map { it.address }
+            .firstOrNull { it is Inet4Address && !it.isLoopbackAddress } as Inet4Address?
+    }
+
+    /** Scans the home Wi-Fi (/24) for devices with ADB (port 5555) open: Fire TVs with ADB debugging on. */
+    private fun scanFireTvs(done: (List<String>) -> Unit) {
+        Thread {
+            val me = localIpv4()
+            if (me == null) {
+                runOnUiThread { done(emptyList()) }
+                return@Thread
+            }
+            val b = me.address
+            val prefix = "${b[0].toInt() and 255}.${b[1].toInt() and 255}.${b[2].toInt() and 255}."
+            val myLast = b[3].toInt() and 255
+            val found = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val pool = Executors.newFixedThreadPool(64)
+            val latch = CountDownLatch(254)
+            for (n in 1..254) {
+                if (n == myLast) { latch.countDown(); continue }
+                pool.execute {
+                    val sock = Socket()
+                    try {
+                        sock.connect(InetSocketAddress(prefix + n, ADB_PORT), 700)
+                        found.add(prefix + n)
+                    } catch (_: Exception) {
+                    } finally {
+                        try { sock.close() } catch (_: Exception) {}
+                        latch.countDown()
+                    }
+                }
+            }
+            latch.await(20, TimeUnit.SECONDS)
+            pool.shutdownNow()
+            val result = found.toList().sortedBy { it.substringAfterLast('.').toInt() }
+            runOnUiThread { done(result) }
+        }.start()
+    }
+
+    /** Fills the TV slots from the scan: keeps IPs that were found again, puts new ones in the empty/lost slots. */
+    private fun assignFound(current: List<String>, found: List<String>): List<String> {
+        val keep = current.map { if (it in found) it else "" }.toMutableList()
+        val rest = found.filter { it !in keep }.toMutableList()
+        for (i in keep.indices) if (keep[i].isEmpty() && rest.isNotEmpty()) keep[i] = rest.removeAt(0)
+        return keep
+    }
+
+    private fun autoDetect(showSettingsIfNone: Boolean) {
+        for (i in 0..1) setStatus(i, "Searching your Wi-Fi for Fire TVs…", null)
+        scanFireTvs { found ->
+            if (found.isEmpty()) {
+                for (i in 0..1) setStatus(i, if (tvIp(i).isBlank()) "No Fire TV found" else "Can't reach ${tvIp(i)}", false)
+                Toast.makeText(this, "No Fire TV found. Turn the TV on and ADB debugging on.", Toast.LENGTH_LONG).show()
+                if (showSettingsIfNone) showSettings()
+            } else {
+                val newIps = assignFound(listOf(tvIp(0), tvIp(1)), found)
+                val ed = prefs.edit()
+                for (i in 0..1) ed.putString("ip$i", newIps[i])
+                ed.apply()
+                for (i in 0..1) {
+                    tvs[i].reset()
+                    setStatus(i, if (newIps[i].isBlank()) "No IP address set" else "Found at ${newIps[i]}", null)
+                }
+                Toast.makeText(this, "Found ${found.size} Fire TV: ${found.joinToString(", ")}", Toast.LENGTH_LONG).show()
+                if (tvIp(selected).isNotBlank()) tvs[selected].run("echo ok", false)
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- sending
 
     private fun targets(): List<Int> {
@@ -248,7 +327,8 @@ class MainActivity : Activity() {
         for (i in 0..1) {
             val t = TextView(this).apply {
                 textSize = 13f
-                setPadding(dp(6), dp(6), 0, 0)
+                setPadding(dp(6), dp(6), 0, dp(2))
+                setOnClickListener { autoDetect(false) }
             }
             statusViews[i] = t
             root.addView(t)
@@ -332,7 +412,7 @@ class MainActivity : Activity() {
         refreshSelector()
 
         if (tvIp(0).isBlank() && tvIp(1).isBlank()) {
-            showSettings()
+            autoDetect(true)
         } else if (tvIp(selected).isNotBlank()) {
             tvs[selected].run("echo ok", false)
         }
@@ -373,7 +453,7 @@ class MainActivity : Activity() {
         val info = TextView(this).apply {
             text = "On each Fire TV: Settings → My Fire TV → Developer options → turn ADB debugging ON. " +
                 "(If Developer options is missing: About → click the device name 7 times.) " +
-                "Find the IP address under About → Network. The first time, accept the prompt on the TV."
+                "Then tap Find Fire TVs below (or type the IP address). The first time, accept the prompt on the TV."
             textSize = 13f
         }
         box.addView(info)
@@ -404,6 +484,26 @@ class MainActivity : Activity() {
             box.addView(n)
             box.addView(ip)
         }
+
+        val findBtn = makeButton("Find Fire TVs on my Wi-Fi", true, 14f)
+        findBtn.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
+            .apply { topMargin = dp(16) }
+        findBtn.setOnClickListener {
+            findBtn.isEnabled = false
+            findBtn.text = "Searching… (a few seconds)"
+            scanFireTvs { found ->
+                findBtn.isEnabled = true
+                findBtn.text = "Find Fire TVs on my Wi-Fi"
+                if (found.isEmpty()) {
+                    Toast.makeText(this, "None found. Turn the TVs on and ADB debugging on.", Toast.LENGTH_LONG).show()
+                } else {
+                    val newIps = assignFound(ipFields.map { it!!.text.toString().trim() }, found)
+                    for (i in 0..1) ipFields[i]!!.setText(newIps[i])
+                    Toast.makeText(this, "Found: ${found.joinToString(", ")}. Tap Save.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        box.addView(findBtn)
 
         AlertDialog.Builder(this)
             .setTitle("Settings")
