@@ -210,9 +210,6 @@ class MainActivity : Activity() {
         return b
     }
 
-    @Volatile
-    private var settingVolume = false
-
     // ---- remembered volume level per TV (the TVs can't report it over infrared)
     private fun getLevel(i: Int): Int = prefs.getInt("level$i", -1)
     private fun setLevel(i: Int, v: Int) { prefs.edit().putInt("level$i", v).apply() }
