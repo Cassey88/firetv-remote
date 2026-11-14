@@ -1,0 +1,56 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Point Gradle at the Android SDK on the runner
+        run: echo "sdk.dir=${ANDROID_SDK_ROOT:-$ANDROID_HOME}" > local.properties
+
+      - name: Build release APK
+        shell: bash
+        run: gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Name the APK
+        run: cp app/build/outputs/apk/release/app-release.apk "FireTV-Remote-v1.${{ github.run_number }}.apk"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.${{ github.run_number }}
+          name: Fire TV Remote v1.${{ github.run_number }}
+          files: FireTV-Remote-v1.${{ github.run_number }}.apk
+          make_latest: true
+
+      - name: Publish build log on failure
+        if: failure()
+        shell: bash
+        run: |
+          tail -n 200 build.log > /tmp/tail.log 2>/dev/null || echo "no build log" > /tmp/tail.log
+          git config user.name ci
+          git config user.email ci@example.com
+          git checkout --orphan buildlog
+          git rm -rf . > /dev/null 2>&1 || true
+          cp /tmp/tail.log build-tail.log
+          git add build-tail.log
+          git commit -m "build log"
+          git push -f origin buildlog
