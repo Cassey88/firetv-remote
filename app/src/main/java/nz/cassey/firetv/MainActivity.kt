@@ -303,7 +303,7 @@ class MainActivity : Activity() {
 
     private fun sendCmd(cmd: String, droppable: Boolean, irKind: String? = null) {
         for (i in targets()) {
-            // TV volume goes out by infrared from the phone (TV 1 Panasonic, TV 2 Sony)
+            // TV volume goes out by infrared from the phone (TV 1 Sony, TV 2 Panasonic)
             if (irKind != null) sendIr(i, irKind) else tvs[i].run(cmd, droppable)
         }
     }
@@ -345,7 +345,7 @@ class MainActivity : Activity() {
             return
         }
         try {
-            if (tv == 0) {
+            if (tv == 1) {
                 val cmd = when (kind) { "up" -> 0x20; "down" -> 0x21; else -> 0x32 }
                 ir.transmit(37000, panasonicPattern(cmd))
             } else {
