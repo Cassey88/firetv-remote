@@ -179,13 +179,13 @@ class MainActivity : Activity() {
         v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    private fun keyButton(label: String, keyCode: Int, accent: Boolean = false, repeat: Boolean = false, textSize: Float = 18f, shell: String? = null, irCmd: Int? = null): Button {
+    private fun keyButton(label: String, keyCode: Int, accent: Boolean = false, repeat: Boolean = false, textSize: Float = 18f, shell: String? = null, irKind: String? = null): Button {
         val b = makeButton(label, accent, textSize)
         val cmdStr = shell ?: "input keyevent $keyCode"
         if (repeat) {
             val r = object : Runnable {
                 override fun run() {
-                    sendCmd(cmdStr, true, irCmd)
+                    sendCmd(cmdStr, true, irKind)
                     mainHandler.postDelayed(this, 130)
                 }
             }
@@ -194,7 +194,7 @@ class MainActivity : Activity() {
                     MotionEvent.ACTION_DOWN -> {
                         v.isPressed = true
                         haptic(v)
-                        sendCmd(cmdStr, false, irCmd)
+                        sendCmd(cmdStr, false, irKind)
                         mainHandler.postDelayed(r, 450)
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -205,7 +205,7 @@ class MainActivity : Activity() {
                 true
             }
         } else {
-            b.setOnClickListener { haptic(it); sendCmd(cmdStr, false, irCmd) }
+            b.setOnClickListener { haptic(it); sendCmd(cmdStr, false, irKind) }
         }
         return b
     }
@@ -301,22 +301,17 @@ class MainActivity : Activity() {
         return list.filter { tvIp(it).isNotBlank() }.ifEmpty { listOf(selected) }
     }
 
-    private fun sendCmd(cmd: String, droppable: Boolean, irCmd: Int? = null) {
+    private fun sendCmd(cmd: String, droppable: Boolean, irKind: String? = null) {
         for (i in targets()) {
-            // TV 1 (Panasonic) volume goes out by infrared from the phone; the Fire TV can't change it
-            if (i == 0 && irCmd != null) sendIr(irCmd) else tvs[i].run(cmd, droppable)
+            // TV volume goes out by infrared from the phone (TV 1 Panasonic, TV 2 Sony)
+            if (irKind != null) sendIr(i, irKind) else tvs[i].run(cmd, droppable)
         }
     }
 
     private val irManager by lazy { getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager }
 
-    /** Panasonic (Kaseikyo) 48-bit code for the TH-P50V20Z, same codes as the IR Remote app. */
-    private fun sendIr(cmd: Int) {
-        val ir = irManager
-        if (ir == null || !ir.hasIrEmitter()) {
-            Toast.makeText(this, "This phone has no infrared blaster", Toast.LENGTH_SHORT).show()
-            return
-        }
+    /** Panasonic (Kaseikyo) 48-bit frame, same codes as the IR Remote app. */
+    private fun panasonicPattern(cmd: Int): IntArray {
         val bytes = intArrayOf(0x02, 0x20, 0x80, 0x00, cmd, 0x80 xor 0x00 xor cmd)
         val l = ArrayList<Int>()
         l.add(3456); l.add(1728)
@@ -325,15 +320,41 @@ class MainActivity : Activity() {
             l.add(if (((b shr i) and 1) == 1) 1296 else 432)
         }
         l.add(432); l.add(40000)
+        return l.toIntArray()
+    }
+
+    /** Sony SIRC 12-bit frame sent three times, same codes as the IR Remote app. */
+    private fun sonyPattern(data: Long): IntArray {
+        val frame = ArrayList<Int>()
+        frame.add(2400); frame.add(600)
+        for (i in 11 downTo 0) {
+            frame.add(if (((data shr i) and 1L) == 1L) 1200 else 600)
+            frame.add(600)
+        }
+        val gap = 45000 - frame.sum()
+        frame[frame.size - 1] = 600 + gap
+        val all = ArrayList<Int>()
+        repeat(3) { all.addAll(frame) }
+        return all.toIntArray()
+    }
+
+    private fun sendIr(tv: Int, kind: String) {
+        val ir = irManager
+        if (ir == null || !ir.hasIrEmitter()) {
+            Toast.makeText(this, "This phone has no infrared blaster", Toast.LENGTH_SHORT).show()
+            return
+        }
         try {
-            ir.transmit(37000, l.toIntArray())
+            if (tv == 0) {
+                val cmd = when (kind) { "up" -> 0x20; "down" -> 0x21; else -> 0x32 }
+                ir.transmit(37000, panasonicPattern(cmd))
+            } else {
+                val data = when (kind) { "up" -> 0x490L; "down" -> 0xC90L; else -> 0x290L }
+                ir.transmit(40000, sonyPattern(data))
+            }
         } catch (e: Exception) {
             Toast.makeText(this, "Infrared failed: ${e.message}", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private fun sendShell(cmd: String) {
-        for (i in targets()) tvs[i].run(cmd, false)
     }
 
     // ---------------------------------------------------------------- build UI
@@ -458,11 +479,11 @@ class MainActivity : Activity() {
         // volume
         val vol = row(58)
         addTo(vol, keyButton("Vol –", 25, repeat = true,
-            shell = "cmd media_session volume --show --stream 3 --adj lower || input keyevent 25", irCmd = 0x21))
+            shell = "cmd media_session volume --show --stream 3 --adj lower || input keyevent 25", irKind = "down"))
         addTo(vol, keyButton("Mute", 164,
-            shell = "cmd media_session volume --show --stream 3 --adj toggle-mute || input keyevent 164", irCmd = 0x32))
+            shell = "cmd media_session volume --show --stream 3 --adj toggle-mute || input keyevent 164", irKind = "mute"))
         addTo(vol, keyButton("Vol +", 24, repeat = true,
-            shell = "cmd media_session volume --show --stream 3 --adj raise || input keyevent 24", irCmd = 0x20))
+            shell = "cmd media_session volume --show --stream 3 --adj raise || input keyevent 24", irKind = "up"))
         root.addView(vol)
 
         // apps
