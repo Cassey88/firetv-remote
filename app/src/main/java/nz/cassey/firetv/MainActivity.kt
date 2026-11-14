@@ -210,6 +210,41 @@ class MainActivity : Activity() {
         return b
     }
 
+    @Volatile
+    private var settingVolume = false
+
+    /** The TV can't report its volume, so go to zero first, then step up to the level. */
+    private fun setVolume(level: Int) {
+        if (settingVolume) {
+            Toast.makeText(this, "Still setting the volume…", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val ts = targets()
+        settingVolume = true
+        Toast.makeText(this, "Setting volume to $level… (about ${(100 * 85 + level * 160) / 1000 + 1} seconds)", Toast.LENGTH_LONG).show()
+        Thread {
+            try {
+                repeat(100) {
+                    for (i in ts) sendIr(i, "down")
+                    Thread.sleep(85)
+                }
+                repeat(level) {
+                    for (i in ts) sendIr(i, "up")
+                    Thread.sleep(160)
+                }
+                runOnUiThread { Toast.makeText(this, "Volume set to $level", Toast.LENGTH_SHORT).show() }
+            } finally {
+                settingVolume = false
+            }
+        }.start()
+    }
+
+    private fun presetButton(level: Int): Button {
+        val b = makeButton("Vol $level", false, 17f)
+        b.setOnClickListener { haptic(it); setVolume(level) }
+        return b
+    }
+
     private fun appButton(label: String, pkg: String): Button {
         val b = makeButton(label, false, 15f)
         b.setOnClickListener {
@@ -341,7 +376,7 @@ class MainActivity : Activity() {
     private fun sendIr(tv: Int, kind: String) {
         val ir = irManager
         if (ir == null || !ir.hasIrEmitter()) {
-            Toast.makeText(this, "This phone has no infrared blaster", Toast.LENGTH_SHORT).show()
+            runOnUiThread { Toast.makeText(this, "This phone has no infrared blaster", Toast.LENGTH_SHORT).show() }
             return
         }
         try {
@@ -353,7 +388,7 @@ class MainActivity : Activity() {
                 ir.transmit(40000, sonyPattern(data))
             }
         } catch (e: Exception) {
-            Toast.makeText(this, "Infrared failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            runOnUiThread { Toast.makeText(this, "Infrared failed: ${e.message}", Toast.LENGTH_SHORT).show() }
         }
     }
 
@@ -440,7 +475,7 @@ class MainActivity : Activity() {
 
         // d-pad
         val r1 = row(72)
-        addTo(r1, spacer()); addTo(r1, keyButton("▲", 19, repeat = true, textSize = 24f)); addTo(r1, spacer())
+        addTo(r1, presetButton(11)); addTo(r1, keyButton("▲", 19, repeat = true, textSize = 24f)); addTo(r1, presetButton(20))
         val r2 = row(72)
         addTo(r2, keyButton("◀", 21, repeat = true, textSize = 24f))
         addTo(r2, keyButton("OK", 23, true, textSize = 20f))
