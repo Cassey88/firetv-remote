@@ -369,8 +369,6 @@ class MainActivity : Activity() {
                 val newIps = assignFound(listOf(tvIp(0), tvIp(1)), found)
                 val ed = prefs.edit()
                 for (i in 0..1) ed.putString("ip$i", newIps[i])
-                ed.putString("sonyIp", sonyIpField.text.toString().trim())
-                ed.putString("sonyPsk", sonyPskField.text.toString().trim())
                 ed.apply()
                 for (i in 0..1) {
                     tvs[i].reset()
@@ -729,6 +727,8 @@ class MainActivity : Activity() {
                     ed.putString("name$i", nameFields[i]!!.text.toString().trim())
                     ed.putString("ip$i", ipFields[i]!!.text.toString().trim())
                 }
+                ed.putString("sonyIp", sonyIpField.text.toString().trim())
+                ed.putString("sonyPsk", sonyPskField.text.toString().trim())
                 ed.apply()
                 for (i in 0..1) {
                     tvs[i].reset()
