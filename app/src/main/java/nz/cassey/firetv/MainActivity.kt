@@ -475,13 +475,13 @@ class MainActivity : Activity() {
 
         // d-pad
         val r1 = row(72)
-        addTo(r1, presetButton(11)); addTo(r1, keyButton("▲", 19, repeat = true, textSize = 24f)); addTo(r1, presetButton(20))
+        addTo(r1, spacer()); addTo(r1, keyButton("▲", 19, repeat = true, textSize = 24f)); addTo(r1, spacer())
         val r2 = row(72)
         addTo(r2, keyButton("◀", 21, repeat = true, textSize = 24f))
         addTo(r2, keyButton("OK", 23, true, textSize = 20f))
         addTo(r2, keyButton("▶", 22, repeat = true, textSize = 24f))
         val r3 = row(72)
-        addTo(r3, spacer()); addTo(r3, keyButton("▼", 20, repeat = true, textSize = 24f)); addTo(r3, spacer())
+        addTo(r3, presetButton(11)); addTo(r3, keyButton("▼", 20, repeat = true, textSize = 24f)); addTo(r3, presetButton(20))
         root.addView(r1); root.addView(r2); root.addView(r3)
 
         // volume
