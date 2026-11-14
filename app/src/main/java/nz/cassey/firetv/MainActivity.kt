@@ -213,24 +213,72 @@ class MainActivity : Activity() {
     @Volatile
     private var settingVolume = false
 
-    /** The TV can't report its volume, so go to zero first, then step up to the level. */
-    private fun setVolume(level: Int) {
+    // ---- remembered volume level per TV (the TVs can't report it over infrared)
+    private fun getLevel(i: Int): Int = prefs.getInt("level$i", -1)
+    private fun setLevel(i: Int, v: Int) { prefs.edit().putInt("level$i", v).apply() }
+    private fun trackLevel(i: Int, kind: String) {
+        val cur = getLevel(i)
+        if (cur < 0) return
+        if (kind == "up") setLevel(i, minOf(100, cur + 1))
+        if (kind == "down") setLevel(i, maxOf(0, cur - 1))
+    }
+
+    /** Sony Bravia: set the exact volume over Wi-Fi (needs IP control + Pre-Shared Key on the TV). */
+    private fun sonySetVolume(level: Int): Boolean {
+        val ip = (prefs.getString("sonyIp", "") ?: "").trim()
+        if (ip.isEmpty()) return false
+        val psk = prefs.getString("sonyPsk", "") ?: ""
+        return try {
+            val c = URL("http://$ip/sony/audio").openConnection() as HttpURLConnection
+            c.requestMethod = "POST"
+            c.connectTimeout = 3000
+            c.readTimeout = 4000
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json")
+            if (psk.isNotEmpty()) c.setRequestProperty("X-Auth-PSK", psk)
+            val body = """{"method":"setAudioVolume","id":98,"params":[{"target":"speaker","volume":"$level"}],"version":"1.2"}"""
+            c.outputStream.use { it.write(body.toByteArray()) }
+            val code = c.responseCode
+            val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.readText() ?: ""
+            code in 200..299 && !text.contains("\"error\"")
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    @Volatile
+    private var settingVolume = false
+
+    /**
+     * Sony (TV 1): exact level over Wi-Fi, falling back to infrared steps.
+     * Panasonic (TV 2): infrared steps from the remembered level; first time (or long-press) goes to zero first.
+     */
+    private fun setVolume(level: Int, forceReset: Boolean = false) {
         if (settingVolume) {
             Toast.makeText(this, "Still setting the volume…", Toast.LENGTH_SHORT).show()
             return
         }
         val ts = targets()
         settingVolume = true
-        Toast.makeText(this, "Setting volume to $level… (about ${(100 * 85 + level * 160) / 1000 + 1} seconds)", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Setting volume to $level…", Toast.LENGTH_SHORT).show()
         Thread {
             try {
-                repeat(100) {
-                    for (i in ts) sendIr(i, "down")
-                    Thread.sleep(85)
-                }
-                repeat(level) {
-                    for (i in ts) sendIr(i, "up")
-                    Thread.sleep(160)
+                for (i in ts) {
+                    if (i == 0 && sonySetVolume(level)) {
+                        setLevel(i, level)
+                        continue
+                    }
+                    val cur = getLevel(i)
+                    if (cur < 0 || forceReset) {
+                        repeat(100) { sendIr(i, "down"); Thread.sleep(85) }
+                        setLevel(i, 0)
+                        repeat(level) { sendIr(i, "up"); Thread.sleep(160) }
+                    } else if (level > cur) {
+                        repeat(level - cur) { sendIr(i, "up"); Thread.sleep(160) }
+                    } else if (level < cur) {
+                        repeat(cur - level) { sendIr(i, "down"); Thread.sleep(160) }
+                    }
+                    setLevel(i, level)
                 }
                 runOnUiThread { Toast.makeText(this, "Volume set to $level", Toast.LENGTH_SHORT).show() }
             } finally {
@@ -242,6 +290,12 @@ class MainActivity : Activity() {
     private fun presetButton(level: Int): Button {
         val b = makeButton("Vol $level", false, 17f)
         b.setOnClickListener { haptic(it); setVolume(level) }
+        b.setOnLongClickListener {
+            haptic(it)
+            Toast.makeText(this, "Full reset to $level", Toast.LENGTH_SHORT).show()
+            setVolume(level, true)
+            true
+        }
         return b
     }
 
@@ -318,6 +372,8 @@ class MainActivity : Activity() {
                 val newIps = assignFound(listOf(tvIp(0), tvIp(1)), found)
                 val ed = prefs.edit()
                 for (i in 0..1) ed.putString("ip$i", newIps[i])
+                ed.putString("sonyIp", sonyIpField.text.toString().trim())
+                ed.putString("sonyPsk", sonyPskField.text.toString().trim())
                 ed.apply()
                 for (i in 0..1) {
                     tvs[i].reset()
@@ -387,6 +443,7 @@ class MainActivity : Activity() {
                 val data = when (kind) { "up" -> 0x490L; "down" -> 0xC90L; else -> 0x290L }
                 ir.transmit(40000, sonyPattern(data))
             }
+            trackLevel(tv, kind)
         } catch (e: Exception) {
             runOnUiThread { Toast.makeText(this, "Infrared failed: ${e.message}", Toast.LENGTH_SHORT).show() }
         }
@@ -617,6 +674,34 @@ class MainActivity : Activity() {
             box.addView(n)
             box.addView(ip)
         }
+
+        val sonyLabel = TextView(this).apply {
+            text = "Sony TV — exact volume over Wi-Fi (optional)"
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(18), 0, 0)
+        }
+        val sonyInfo = TextView(this).apply {
+            text = "This is the Sony TV's own IP address (not the Fire TV's). On the Sony: Settings → Network → " +
+                "Home network setup → IP control → Authentication: Normal and Pre-Shared Key, and set the key. " +
+                "Menu names vary by model. Leave empty to use infrared."
+            textSize = 12f
+        }
+        val sonyIpField = EditText(this).apply {
+            hint = "Sony TV IP address"
+            setText(prefs.getString("sonyIp", "") ?: "")
+            inputType = InputType.TYPE_CLASS_TEXT
+            setSingleLine()
+        }
+        val sonyPskField = EditText(this).apply {
+            hint = "Pre-Shared Key"
+            setText(prefs.getString("sonyPsk", "") ?: "")
+            inputType = InputType.TYPE_CLASS_TEXT
+            setSingleLine()
+        }
+        box.addView(sonyLabel)
+        box.addView(sonyInfo)
+        box.addView(sonyIpField)
+        box.addView(sonyPskField)
 
         val findBtn = makeButton("Find Fire TVs on my Wi-Fi", true, 14f)
         findBtn.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
