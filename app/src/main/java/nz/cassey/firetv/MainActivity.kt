@@ -66,6 +66,45 @@ class MainActivity : Activity() {
     private var selected = 0
     private lateinit var bothBox: CheckBox
     private lateinit var updateStatus: TextView
+    private lateinit var playBtn: Button
+    private var playing: Boolean? = null
+
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            pollPlayState()
+            mainHandler.postDelayed(this, 4000)
+        }
+    }
+
+    private fun refreshPlay() {
+        playBtn.text = if (playing == true) "❚❚  Pause" else "▶  Play"
+    }
+
+    /** Asks the selected Fire TV whether something is playing, so the big button shows Pause or Play. */
+    private fun pollPlayState() {
+        if (tvIp(selected).isBlank()) return
+        val at = selected
+        tvs[at].run("dumpsys media_session | grep \"PlaybackState {\"", true) { out ->
+            if (at == selected) {
+                val states = Regex("PlaybackState \\{state=(\\d+)").findAll(out)
+                    .map { it.groupValues[1].toInt() }.toList()
+                if (states.isNotEmpty()) {
+                    playing = states.any { it == 3 }
+                    refreshPlay()
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        mainHandler.postDelayed(pollRunnable, 1500)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mainHandler.removeCallbacks(pollRunnable)
+    }
 
     private var cachedKey: AdbKeyPair? = null
 
@@ -140,12 +179,13 @@ class MainActivity : Activity() {
         v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    private fun keyButton(label: String, keyCode: Int, accent: Boolean = false, repeat: Boolean = false, textSize: Float = 18f): Button {
+    private fun keyButton(label: String, keyCode: Int, accent: Boolean = false, repeat: Boolean = false, textSize: Float = 18f, shell: String? = null): Button {
         val b = makeButton(label, accent, textSize)
+        val cmdStr = shell ?: "input keyevent $keyCode"
         if (repeat) {
             val r = object : Runnable {
                 override fun run() {
-                    sendKey(keyCode, true)
+                    sendCmd(cmdStr, true)
                     mainHandler.postDelayed(this, 130)
                 }
             }
@@ -154,7 +194,7 @@ class MainActivity : Activity() {
                     MotionEvent.ACTION_DOWN -> {
                         v.isPressed = true
                         haptic(v)
-                        sendKey(keyCode, false)
+                        sendCmd(cmdStr, false)
                         mainHandler.postDelayed(r, 450)
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -165,7 +205,7 @@ class MainActivity : Activity() {
                 true
             }
         } else {
-            b.setOnClickListener { haptic(it); sendKey(keyCode, false) }
+            b.setOnClickListener { haptic(it); sendCmd(cmdStr, false) }
         }
         return b
     }
@@ -261,8 +301,8 @@ class MainActivity : Activity() {
         return list.filter { tvIp(it).isNotBlank() }.ifEmpty { listOf(selected) }
     }
 
-    private fun sendKey(code: Int, droppable: Boolean) {
-        for (i in targets()) tvs[i].run("input keyevent $code", droppable)
+    private fun sendCmd(cmd: String, droppable: Boolean) {
+        for (i in targets()) tvs[i].run(cmd, droppable)
     }
 
     private fun sendShell(cmd: String) {
@@ -315,6 +355,8 @@ class MainActivity : Activity() {
             b.setOnClickListener {
                 selected = i
                 prefs.edit().putInt("selected", i).apply()
+                playing = null
+                refreshPlay()
                 refreshSelector()
                 tvs[i].run("echo ok", false)
             }
@@ -367,17 +409,32 @@ class MainActivity : Activity() {
         root.addView(nav)
 
         // media
-        val media = row(58)
-        addTo(media, keyButton("⏪", 89, textSize = 22f))
-        addTo(media, keyButton("⏯", 85, textSize = 22f))
-        addTo(media, keyButton("⏩", 90, textSize = 22f))
-        root.addView(media)
+        val playRow = row(96)
+        playBtn = makeButton("▶  Play", true, 30f)
+        playBtn.setTypeface(playBtn.typeface, Typeface.BOLD)
+        playBtn.setOnClickListener {
+            haptic(it)
+            playing = playing != true
+            refreshPlay()
+            sendCmd("input keyevent 85", false)
+            mainHandler.postDelayed({ pollPlayState() }, 900)
+        }
+        addTo(playRow, playBtn)
+        root.addView(playRow)
+
+        val skip = row(52)
+        addTo(skip, keyButton("⏪  Rewind", 89, textSize = 16f))
+        addTo(skip, keyButton("Forward  ⏩", 90, textSize = 16f))
+        root.addView(skip)
 
         // volume
         val vol = row(58)
-        addTo(vol, keyButton("Vol –", 25, repeat = true))
-        addTo(vol, keyButton("Mute", 164))
-        addTo(vol, keyButton("Vol +", 24, repeat = true))
+        addTo(vol, keyButton("Vol –", 25, repeat = true,
+            shell = "cmd media_session volume --show --stream 3 --adj lower || input keyevent 25"))
+        addTo(vol, keyButton("Mute", 164,
+            shell = "cmd media_session volume --show --stream 3 --adj toggle-mute || input keyevent 164"))
+        addTo(vol, keyButton("Vol +", 24, repeat = true,
+            shell = "cmd media_session volume --show --stream 3 --adj raise || input keyevent 24"))
         root.addView(vol)
 
         // apps
@@ -625,12 +682,12 @@ class Tv(private val ctx: MainActivity, private val idx: Int) {
         return Dadb.create(ip, ADB_PORT, ctx.keyPair())
     }
 
-    private fun execOnce(cmd: String, ip: String) {
+    private fun execOnce(cmd: String, ip: String): String {
         val d = dadb ?: open(ip).also { dadb = it }
-        d.shell(cmd)
+        return d.shell(cmd).allOutput
     }
 
-    fun run(cmd: String, droppable: Boolean) {
+    fun run(cmd: String, droppable: Boolean, onOutput: ((String) -> Unit)? = null) {
         if (droppable && pending.get() >= 3) return
         pending.incrementAndGet()
         ex.execute {
@@ -642,13 +699,15 @@ class Tv(private val ctx: MainActivity, private val idx: Int) {
                 }
                 try {
                     if (dadb == null) ctx.setStatus(idx, "Connecting… accept the prompt on the TV if shown", null)
-                    execOnce(cmd, ip)
+                    val out = execOnce(cmd, ip)
                     ctx.setStatus(idx, "Connected", true)
+                    onOutput?.let { cb -> ctx.runOnUiThread { cb(out) } }
                 } catch (e: Exception) {
                     closeQuiet()
                     try {
-                        execOnce(cmd, ip)
+                        val out = execOnce(cmd, ip)
                         ctx.setStatus(idx, "Connected", true)
+                        onOutput?.let { cb -> ctx.runOnUiThread { cb(out) } }
                     } catch (e2: Exception) {
                         closeQuiet()
                         ctx.setStatus(idx, "Can't reach $ip — TV on? ADB debugging on?", false)
