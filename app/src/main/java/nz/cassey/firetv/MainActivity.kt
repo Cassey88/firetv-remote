@@ -449,6 +449,16 @@ class MainActivity : Activity() {
         addTo(r3, spacer()); addTo(r3, keyButton("▼", 20, repeat = true, textSize = 24f)); addTo(r3, spacer())
         root.addView(r1); root.addView(r2); root.addView(r3)
 
+        // volume
+        val vol = row(58)
+        addTo(vol, keyButton("Vol –", 25, repeat = true,
+            shell = "cmd media_session volume --show --stream 3 --adj lower || input keyevent 25", irKind = "down"))
+        addTo(vol, keyButton("Mute", 164,
+            shell = "cmd media_session volume --show --stream 3 --adj toggle-mute || input keyevent 164", irKind = "mute"))
+        addTo(vol, keyButton("Vol +", 24, repeat = true,
+            shell = "cmd media_session volume --show --stream 3 --adj raise || input keyevent 24", irKind = "up"))
+        root.addView(vol)
+
         // back / home / menu
         val nav = row(58)
         addTo(nav, keyButton("Back", 4))
@@ -459,15 +469,6 @@ class MainActivity : Activity() {
         // media
 
 
-        // volume
-        val vol = row(58)
-        addTo(vol, keyButton("Vol –", 25, repeat = true,
-            shell = "cmd media_session volume --show --stream 3 --adj lower || input keyevent 25", irKind = "down"))
-        addTo(vol, keyButton("Mute", 164,
-            shell = "cmd media_session volume --show --stream 3 --adj toggle-mute || input keyevent 164", irKind = "mute"))
-        addTo(vol, keyButton("Vol +", 24, repeat = true,
-            shell = "cmd media_session volume --show --stream 3 --adj raise || input keyevent 24", irKind = "up"))
-        root.addView(vol)
 
         // apps
         val apps = row(54)
