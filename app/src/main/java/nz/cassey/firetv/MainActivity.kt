@@ -357,6 +357,10 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun sendShell(cmd: String) {
+        for (i in targets()) tvs[i].run(cmd, false)
+    }
+
     // ---------------------------------------------------------------- build UI
 
     override fun onCreate(savedInstanceState: Bundle?) {
