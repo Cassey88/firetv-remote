@@ -458,10 +458,6 @@ class MainActivity : Activity() {
 
         // media
 
-        val skip = row(52)
-        addTo(skip, keyButton("⏪  Rewind", 89, textSize = 16f))
-        addTo(skip, keyButton("Forward  ⏩", 90, textSize = 16f))
-        root.addView(skip)
 
         // volume
         val vol = row(58)
@@ -498,6 +494,11 @@ class MainActivity : Activity() {
             root.addView(t)
         }
 
+
+        val skip = row(52)
+        addTo(skip, keyButton("⏪  Rewind", 89, textSize = 16f))
+        addTo(skip, keyButton("Forward  ⏩", 90, textSize = 16f))
+        root.addView(skip)
 
         setContentView(ScrollView(this).apply {
             setBackgroundColor(BG)
