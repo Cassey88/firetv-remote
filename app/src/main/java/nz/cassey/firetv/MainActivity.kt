@@ -37,6 +37,7 @@ import java.net.Socket
 import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -363,6 +364,19 @@ class MainActivity : Activity() {
         }
         root.addView(sel)
 
+        val playRow = row(96)
+        playBtn = makeButton("▶  Play", true, 30f)
+        playBtn.setTypeface(playBtn.typeface, Typeface.BOLD)
+        playBtn.setOnClickListener {
+            haptic(it)
+            playing = playing != true
+            refreshPlay()
+            sendCmd("input keyevent 85", false)
+            mainHandler.postDelayed({ pollPlayState() }, 900)
+        }
+        addTo(playRow, playBtn)
+        root.addView(playRow)
+
         // status lines
         for (i in 0..1) {
             val t = TextView(this).apply {
@@ -407,18 +421,6 @@ class MainActivity : Activity() {
         root.addView(nav)
 
         // media
-        val playRow = row(96)
-        playBtn = makeButton("▶  Play", true, 30f)
-        playBtn.setTypeface(playBtn.typeface, Typeface.BOLD)
-        playBtn.setOnClickListener {
-            haptic(it)
-            playing = playing != true
-            refreshPlay()
-            sendCmd("input keyevent 85", false)
-            mainHandler.postDelayed({ pollPlayState() }, 900)
-        }
-        addTo(playRow, playBtn)
-        root.addView(playRow)
 
         val skip = row(52)
         addTo(skip, keyButton("⏪  Rewind", 89, textSize = 16f))
@@ -492,7 +494,7 @@ class MainActivity : Activity() {
         val info = TextView(this).apply {
             text = "On each Fire TV: Settings → My Fire TV → Developer options → turn ADB debugging ON. " +
                 "(If Developer options is missing: About → click the device name 7 times.) " +
-                "Then tap Find Fire TVs below (or type the IP address). The first time, accept the prompt on the TV."
+                "Then tap Find Fire TVs below (or type the IP address). If a prompt appears on the TV, tick Always allow and press OK — it only asks once."
             textSize = 13f
         }
         box.addView(info)
@@ -569,6 +571,7 @@ class MainActivity : Activity() {
 /** One Fire TV, controlled over ADB (port 5555). Commands run on a private single thread. */
 class Tv(private val ctx: MainActivity, private val idx: Int) {
     private val ex = Executors.newSingleThreadExecutor()
+    private val timer = Executors.newSingleThreadScheduledExecutor()
     private val pending = AtomicInteger(0)
 
     @Volatile
@@ -608,12 +611,20 @@ class Tv(private val ctx: MainActivity, private val idx: Int) {
                     ctx.setStatus(idx, "No IP address set (open Settings)", false)
                     return@execute
                 }
+                var hint: ScheduledFuture<*>? = null
                 try {
-                    if (dadb == null) ctx.setStatus(idx, "Connecting… accept the prompt on the TV if shown", null)
+                    if (dadb == null) {
+                        ctx.setStatus(idx, "Connecting…", null)
+                        hint = timer.schedule(Runnable {
+                            ctx.setStatus(idx, "Waiting for the TV — choose Always allow on the TV screen", null)
+                        }, 7, TimeUnit.SECONDS)
+                    }
                     val out = execOnce(cmd, ip)
+                    hint?.cancel(false)
                     ctx.setStatus(idx, "Connected", true)
                     onOutput?.let { cb -> ctx.runOnUiThread { cb(out) } }
                 } catch (e: Exception) {
+                    hint?.cancel(false)
                     closeQuiet()
                     try {
                         val out = execOnce(cmd, ip)
