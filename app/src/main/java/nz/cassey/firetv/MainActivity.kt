@@ -77,7 +77,7 @@ class MainActivity : Activity() {
     }
 
     private fun refreshPlay() {
-        playBtn.text = if (playing == true) "❚❚  Pause" else "▶  Play"
+        playBtn.text = if (playing == false) "▶  Play" else "❚❚  Pause"
     }
 
     /** Asks the selected Fire TV whether something is playing, so the big button shows Pause or Play. */
@@ -418,28 +418,17 @@ class MainActivity : Activity() {
         root.addView(sel)
 
         val playRow = row(96)
-        playBtn = makeButton("▶  Play", true, 30f)
+        playBtn = makeButton("❚❚  Pause", true, 30f)
         playBtn.setTypeface(playBtn.typeface, Typeface.BOLD)
         playBtn.setOnClickListener {
             haptic(it)
-            playing = playing != true
+            playing = !(playing ?: true)
             refreshPlay()
             sendCmd("input keyevent 85", false)
             mainHandler.postDelayed({ pollPlayState() }, 900)
         }
         addTo(playRow, playBtn)
         root.addView(playRow)
-
-        // status lines
-        for (i in 0..1) {
-            val t = TextView(this).apply {
-                textSize = 13f
-                setPadding(dp(6), dp(6), 0, dp(2))
-                setOnClickListener { autoDetect(false) }
-            }
-            statusViews[i] = t
-            root.addView(t)
-        }
 
         bothBox = CheckBox(this).apply {
             text = "Control both TVs at once"
@@ -448,12 +437,6 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean("both", c).apply() }
         }
         root.addView(bothBox)
-
-        // power
-        val power = row(56)
-        addTo(power, keyButton("Wake up", 224, true))
-        addTo(power, keyButton("Sleep", 223))
-        root.addView(power)
 
         // d-pad
         val r1 = row(72)
@@ -494,8 +477,27 @@ class MainActivity : Activity() {
         val apps = row(54)
         addTo(apps, appButton("Netflix", "com.netflix.ninja"))
         addTo(apps, appButton("YouTube", "com.amazon.firetv.youtube"))
-        addTo(apps, appButton("Prime Video", "com.amazon.avod"))
+        addTo(apps, appButton("Prime", "com.amazon.avod"))
         root.addView(apps)
+
+        // power
+        val power = row(56)
+        addTo(power, keyButton("Wake up", 224, true))
+        addTo(power, keyButton("Sleep", 223))
+        root.addView(power)
+
+
+        // status lines
+        for (i in 0..1) {
+            val t = TextView(this).apply {
+                textSize = 13f
+                setPadding(dp(6), dp(6), 0, dp(2))
+                setOnClickListener { autoDetect(false) }
+            }
+            statusViews[i] = t
+            root.addView(t)
+        }
+
 
         setContentView(ScrollView(this).apply {
             setBackgroundColor(BG)
