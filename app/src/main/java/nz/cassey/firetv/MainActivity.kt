@@ -26,7 +26,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.content.FileProvider
 import dadb.AdbKeyPair
 import dadb.Dadb
 import org.json.JSONObject
@@ -65,7 +64,6 @@ class MainActivity : Activity() {
     private val selectorButtons = arrayOfNulls<Button>(2)
     private var selected = 0
     private lateinit var bothBox: CheckBox
-    private lateinit var updateStatus: TextView
     private lateinit var playBtn: Button
     private var playing: Boolean? = null
 
@@ -444,21 +442,6 @@ class MainActivity : Activity() {
         addTo(apps, appButton("Prime Video", "com.amazon.avod"))
         root.addView(apps)
 
-        // updates
-        val upd = makeButton("Check for updates", false, 14f)
-        upd.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
-            .apply { topMargin = dp(22) }
-        upd.setOnClickListener { checkUpdate(true) }
-        root.addView(upd)
-
-        updateStatus = TextView(this).apply {
-            setTextColor(GREY)
-            textSize = 12f
-            gravity = Gravity.CENTER
-            setPadding(0, dp(6), 0, 0)
-        }
-        root.addView(updateStatus)
-
         setContentView(ScrollView(this).apply {
             setBackgroundColor(BG)
             isFillViewport = true
@@ -473,7 +456,6 @@ class MainActivity : Activity() {
         } else if (tvIp(selected).isNotBlank()) {
             tvs[selected].run("echo ok", false)
         }
-        checkUpdate(false)
     }
 
     private fun refreshSelector() {
@@ -581,77 +563,6 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
-    }
-
-    // ---------------------------------------------------------------- updates
-
-    private fun checkUpdate(manual: Boolean) {
-        if (manual) updateStatus.text = "Checking for updates…"
-        Thread {
-            try {
-                val c = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
-                c.setRequestProperty("Accept", "application/vnd.github+json")
-                c.connectTimeout = 8000
-                c.readTimeout = 8000
-                val json = JSONObject(c.inputStream.bufferedReader().readText())
-                val tag = json.getString("tag_name")
-                val latest = tag.removePrefix("v").substringAfter('.', "0").toIntOrNull() ?: 0
-                var apkUrl: String? = null
-                val assets = json.getJSONArray("assets")
-                for (k in 0 until assets.length()) {
-                    val a = assets.getJSONObject(k)
-                    if (a.getString("name").endsWith(".apk")) apkUrl = a.getString("browser_download_url")
-                }
-                if (latest > BuildConfig.VERSION_CODE && apkUrl != null) {
-                    val url = apkUrl
-                    runOnUiThread {
-                        updateStatus.text = "Update available: $tag"
-                        AlertDialog.Builder(this)
-                            .setTitle("Update available")
-                            .setMessage("Version ${tag.removePrefix("v")} is ready (you have ${BuildConfig.VERSION_NAME}). Download and install now?")
-                            .setPositiveButton("Update") { _, _ -> downloadAndInstall(url) }
-                            .setNegativeButton("Later", null)
-                            .show()
-                    }
-                } else {
-                    runOnUiThread { updateStatus.text = if (manual) "You have the latest version (${BuildConfig.VERSION_NAME})" else "" }
-                }
-            } catch (e: Exception) {
-                runOnUiThread { if (manual) updateStatus.text = "Could not check for updates" }
-            }
-        }.start()
-    }
-
-    private fun downloadAndInstall(url: String) {
-        if (!packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(this, "Allow installing from this app, then tap Check for updates again", Toast.LENGTH_LONG).show()
-            startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
-            )
-            return
-        }
-        updateStatus.text = "Downloading update…"
-        Thread {
-            try {
-                val dir = File(cacheDir, "updates").apply { mkdirs() }
-                val file = File(dir, "FireTV-Remote.apk")
-                val c = URL(url).openConnection() as HttpURLConnection
-                c.connectTimeout = 15000
-                c.readTimeout = 30000
-                c.instanceFollowRedirects = true
-                c.inputStream.use { input -> file.outputStream().use { out -> input.copyTo(out) } }
-                runOnUiThread {
-                    updateStatus.text = "Installing…"
-                    val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-                    val i = Intent(Intent.ACTION_VIEW)
-                        .setDataAndType(uri, "application/vnd.android.package-archive")
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(i)
-                }
-            } catch (e: Exception) {
-                runOnUiThread { updateStatus.text = "Download failed: ${e.message}" }
-            }
-        }.start()
     }
 }
 
