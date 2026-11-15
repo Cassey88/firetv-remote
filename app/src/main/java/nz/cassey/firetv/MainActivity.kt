@@ -285,6 +285,48 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    /** Sony Bravia: power on/off over Wi-Fi (needs IP control + key; "on" also needs Remote start). Null = worked. */
+    private fun sonyPower(on: Boolean): String? {
+        val ip = (prefs.getString("sonyIp", "192.168.86.21") ?: "").trim()
+        if (ip.isEmpty()) return "not set up in Settings"
+        val psk = prefs.getString("sonyPsk", "") ?: ""
+        return try {
+            val c = URL("http://$ip/sony/system").openConnection() as HttpURLConnection
+            c.requestMethod = "POST"
+            c.connectTimeout = 3000
+            c.readTimeout = 4000
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json")
+            if (psk.isNotEmpty()) c.setRequestProperty("X-Auth-PSK", psk)
+            val body = """{"method":"setPowerStatus","id":55,"params":[{"status":$on}],"version":"1.1"}"""
+            c.outputStream.use { it.write(body.toByteArray()) }
+            val code = c.responseCode
+            val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.readText() ?: ""
+            if (code in 200..299 && !text.contains("\"error\"")) null else "TV said no (code $code)"
+        } catch (e: Exception) {
+            "can't reach $ip"
+        }
+    }
+
+    /** TV On / TV Off: Sony by Wi-Fi when possible, otherwise infrared power; Panasonic by infrared power. */
+    private fun tvPower(on: Boolean) {
+        val ts = targets()
+        Toast.makeText(this, if (on) "Turning TV on…" else "Turning TV off…", Toast.LENGTH_SHORT).show()
+        Thread {
+            for (i in ts) {
+                if (i == 0 && sonyPower(on) == null) continue
+                sendIr(i, "power")
+                Thread.sleep(300)
+            }
+        }.start()
+    }
+
+    private fun tvPowerButton(on: Boolean): Button {
+        val b = makeButton(if (on) "TV On" else "TV Off", on, 16f)
+        b.setOnClickListener { haptic(it); tvPower(on) }
+        return b
+    }
+
     private fun presetButton(level: Int): Button {
         val b = makeButton("Vol $level", false, 17f)
         b.setOnClickListener { haptic(it); setVolume(level) }
@@ -437,10 +479,10 @@ class MainActivity : Activity() {
         }
         try {
             if (tv == 1) {
-                val cmd = when (kind) { "up" -> 0x20; "down" -> 0x21; else -> 0x32 }
+                val cmd = when (kind) { "up" -> 0x20; "down" -> 0x21; "power" -> 0x3D; else -> 0x32 }
                 ir.transmit(37000, panasonicPattern(cmd))
             } else {
-                val data = when (kind) { "up" -> 0x490L; "down" -> 0xC90L; else -> 0x290L }
+                val data = when (kind) { "up" -> 0x490L; "down" -> 0xC90L; "power" -> 0xA90L; else -> 0x290L }
                 ir.transmit(40000, sonyPattern(data))
             }
             trackLevel(tv, kind)
@@ -532,7 +574,7 @@ class MainActivity : Activity() {
 
         // d-pad
         val r1 = row(72)
-        addTo(r1, spacer()); addTo(r1, keyButton("▲", 19, repeat = true, textSize = 24f)); addTo(r1, spacer())
+        addTo(r1, tvPowerButton(true)); addTo(r1, keyButton("▲", 19, repeat = true, textSize = 24f)); addTo(r1, tvPowerButton(false))
         val r2 = row(72)
         addTo(r2, keyButton("◀", 21, repeat = true, textSize = 24f))
         addTo(r2, keyButton("OK", 23, true, textSize = 20f))
