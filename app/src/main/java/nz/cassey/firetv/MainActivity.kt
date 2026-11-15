@@ -226,7 +226,7 @@ class MainActivity : Activity() {
 
     /** Sony Bravia: set the exact volume over Wi-Fi. Returns null when it worked, otherwise the reason it didn't. */
     private fun sonySetVolume(level: Int): String? {
-        val ip = (prefs.getString("sonyIp", "") ?: "").trim()
+        val ip = (prefs.getString("sonyIp", "192.168.86.21") ?: "").trim()
         if (ip.isEmpty()) return "not set up in Settings"
         val psk = prefs.getString("sonyPsk", "") ?: ""
         return try {
@@ -688,7 +688,7 @@ class MainActivity : Activity() {
         }
         val sonyIpField = EditText(this).apply {
             hint = "Sony TV IP address"
-            setText(prefs.getString("sonyIp", "") ?: "")
+            setText(prefs.getString("sonyIp", "192.168.86.21") ?: "")
             inputType = InputType.TYPE_CLASS_TEXT
             setSingleLine()
         }
