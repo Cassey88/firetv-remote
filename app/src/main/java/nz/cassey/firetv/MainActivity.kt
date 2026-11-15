@@ -211,7 +211,11 @@ class MainActivity : Activity() {
     }
 
     // ---- remembered volume level per TV (the TVs can't report it over infrared)
-    private fun getLevel(i: Int): Int = prefs.getInt("level$i", -1)
+    // Panasonic (TV 2) is assumed to start at volume 25 until a level has been remembered
+    private fun getLevel(i: Int): Int {
+        val v = prefs.getInt("level$i", -1)
+        return if (v < 0 && i == 1) 25 else v
+    }
     private fun setLevel(i: Int, v: Int) { prefs.edit().putInt("level$i", v).apply() }
     private fun trackLevel(i: Int, kind: String) {
         val cur = getLevel(i)
@@ -267,7 +271,7 @@ class MainActivity : Activity() {
                     }
                     val cur = getLevel(i)
                     if (cur < 0 || forceReset) {
-                        repeat(100) { sendIr(i, "down"); Thread.sleep(85) }
+                        repeat(if (i == 1) 25 else 100) { sendIr(i, "down"); Thread.sleep(85) }
                         setLevel(i, 0)
                         repeat(level) { sendIr(i, "up"); Thread.sleep(160) }
                     } else if (level > cur) {
