@@ -175,11 +175,17 @@ class MainActivity : Activity() {
 
     private fun spacer(): View = View(this)
 
+    /** Turns a button blue for a moment after it is pressed, then back to normal. */
+    private fun flashBlue(b: Button) {
+        b.background = bg(ACCENT, ACCENT_PRESSED)
+        mainHandler.postDelayed({ b.background = bg(BTN, BTN_PRESSED) }, 700)
+    }
+
     private fun haptic(v: View) {
         v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    private fun keyButton(label: String, keyCode: Int, accent: Boolean = false, repeat: Boolean = false, textSize: Float = 18f, shell: String? = null, irKind: String? = null): Button {
+    private fun keyButton(label: String, keyCode: Int, accent: Boolean = false, repeat: Boolean = false, textSize: Float = 18f, shell: String? = null, irKind: String? = null, flash: Boolean = false): Button {
         val b = makeButton(label, accent, textSize)
         val cmdStr = shell ?: "input keyevent $keyCode"
         if (repeat) {
@@ -205,7 +211,7 @@ class MainActivity : Activity() {
                 true
             }
         } else {
-            b.setOnClickListener { haptic(it); sendCmd(cmdStr, false, irKind) }
+            b.setOnClickListener { haptic(it); if (flash) flashBlue(b); sendCmd(cmdStr, false, irKind) }
         }
         return b
     }
@@ -322,8 +328,8 @@ class MainActivity : Activity() {
     }
 
     private fun tvPowerButton(on: Boolean): Button {
-        val b = makeButton(if (on) "TV On" else "TV Off", on, 16f)
-        b.setOnClickListener { haptic(it); tvPower(on) }
+        val b = makeButton(if (on) "TV On" else "TV Off", false, 16f)
+        b.setOnClickListener { haptic(it); flashBlue(b); tvPower(on) }
         return b
     }
 
@@ -620,8 +626,8 @@ class MainActivity : Activity() {
 
         // power
         val power = row(56)
-        addTo(power, keyButton("Wake up", 224, true))
-        addTo(power, keyButton("Sleep", 223))
+        addTo(power, keyButton("Wake up", 224, flash = true))
+        addTo(power, keyButton("Sleep", 223, flash = true))
         root.addView(power)
 
 
