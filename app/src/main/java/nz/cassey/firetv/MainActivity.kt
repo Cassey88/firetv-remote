@@ -211,10 +211,10 @@ class MainActivity : Activity() {
     }
 
     // ---- remembered volume level per TV (the TVs can't report it over infrared)
-    // Panasonic (TV 2) is assumed to start at volume 25 until a level has been remembered
+    // Panasonic (TV 2): nothing is remembered, presets always count from volume 25
     private fun getLevel(i: Int): Int {
-        val v = prefs.getInt("level$i", -1)
-        return if (v < 0 && i == 1) 25 else v
+        if (i == 1) return 25
+        return prefs.getInt("level$i", -1)
     }
     private fun setLevel(i: Int, v: Int) { prefs.edit().putInt("level$i", v).apply() }
     private fun trackLevel(i: Int, kind: String) {
@@ -291,12 +291,6 @@ class MainActivity : Activity() {
     private fun presetButton(level: Int): Button {
         val b = makeButton("Vol $level", false, 17f)
         b.setOnClickListener { haptic(it); setVolume(level) }
-        b.setOnLongClickListener {
-            haptic(it)
-            Toast.makeText(this, "Full reset to $level", Toast.LENGTH_SHORT).show()
-            setVolume(level, true)
-            true
-        }
         return b
     }
 
