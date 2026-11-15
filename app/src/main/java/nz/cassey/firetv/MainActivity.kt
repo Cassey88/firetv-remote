@@ -339,15 +339,22 @@ class MainActivity : Activity() {
         return b
     }
 
-    private fun appButton(label: String, pkg: String, altPkg: String? = null): Button {
+    /** Opens an app on the Fire TV: tries each package, with both normal and Fire TV (leanback) launchers. */
+    private fun appButton(label: String, vararg pkgs: String): Button {
         val b = makeButton(label, false, 15f)
-        val launch = "monkey -p $pkg -c android.intent.category.LAUNCHER 1"
-        val cmd = if (altPkg == null) launch else
-            "if pm path $pkg | grep -q package; then $launch; " +
-                "else monkey -p $altPkg -c android.intent.category.LAUNCHER 1; fi"
+        val cmd = "for p in ${pkgs.joinToString(" ")}; do pm path ${'$'}p | grep -q package || continue; " +
+            "for c in LAUNCHER LEANBACK_LAUNCHER; do " +
+            "if monkey -p ${'$'}p -c android.intent.category.${'$'}c 1 2>&1 | grep -q 'Events injected: 1'; " +
+            "then echo LAUNCHED; exit 0; fi; done; done; echo NOTFOUND"
         b.setOnClickListener {
             haptic(it)
-            sendShell(cmd)
+            for (i in targets()) {
+                tvs[i].run(cmd, false) { out ->
+                    if (!out.contains("LAUNCHED")) {
+                        Toast.makeText(this, "${tvName(i)}: $label app not found on the Fire TV", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
         }
         return b
     }
@@ -608,7 +615,7 @@ class MainActivity : Activity() {
         val apps = row(54)
         addTo(apps, appButton("Netflix", "com.netflix.ninja"))
         addTo(apps, appButton("YouTube", "com.amazon.firetv.youtube"))
-        addTo(apps, appButton("Prime", "com.amazon.firebat", "com.amazon.avod"))
+        addTo(apps, appButton("Prime", "com.amazon.amazonvideo.livingroom", "com.amazon.firebat", "com.amazon.avod"))
         root.addView(apps)
 
         // power
