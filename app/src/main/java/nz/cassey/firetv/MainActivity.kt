@@ -224,10 +224,10 @@ class MainActivity : Activity() {
         if (kind == "down") setLevel(i, maxOf(0, cur - 1))
     }
 
-    /** Sony Bravia: set the exact volume over Wi-Fi (needs IP control + Pre-Shared Key on the TV). */
-    private fun sonySetVolume(level: Int): Boolean {
+    /** Sony Bravia: set the exact volume over Wi-Fi. Returns null when it worked, otherwise the reason it didn't. */
+    private fun sonySetVolume(level: Int): String? {
         val ip = (prefs.getString("sonyIp", "") ?: "").trim()
-        if (ip.isEmpty()) return false
+        if (ip.isEmpty()) return "not set up in Settings"
         val psk = prefs.getString("sonyPsk", "") ?: ""
         return try {
             val c = URL("http://$ip/sony/audio").openConnection() as HttpURLConnection
@@ -241,9 +241,9 @@ class MainActivity : Activity() {
             c.outputStream.use { it.write(body.toByteArray()) }
             val code = c.responseCode
             val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.readText() ?: ""
-            code in 200..299 && !text.contains("\"error\"")
+            if (code in 200..299 && !text.contains("\"error\"")) null else "TV said no (code $code)"
         } catch (e: Exception) {
-            false
+            "can't reach $ip"
         }
     }
 
@@ -251,10 +251,10 @@ class MainActivity : Activity() {
     private var settingVolume = false
 
     /**
-     * Sony (TV 1): exact level over Wi-Fi, falling back to infrared steps.
-     * Panasonic (TV 2): infrared steps from the remembered level; first time (or long-press) goes to zero first.
+     * Sony (TV 1): exact level over Wi-Fi; if that fails, infrared.
+     * Infrared (always for the Panasonic): count down 25 steps to zero (20 on long-press), then up to the level.
      */
-    private fun setVolume(level: Int, forceReset: Boolean = false) {
+    private fun setVolume(level: Int, longPress: Boolean = false) {
         if (settingVolume) {
             Toast.makeText(this, "Still setting the volume…", Toast.LENGTH_SHORT).show()
             return
@@ -265,20 +265,17 @@ class MainActivity : Activity() {
         Thread {
             try {
                 for (i in ts) {
-                    if (i == 0 && sonySetVolume(level)) {
-                        setLevel(i, level)
-                        continue
+                    if (i == 0) {
+                        val err = sonySetVolume(level)
+                        if (err == null) {
+                            setLevel(i, level)
+                            continue
+                        }
+                        runOnUiThread { Toast.makeText(this, "Sony Wi-Fi: $err. Using infrared.", Toast.LENGTH_LONG).show() }
                     }
-                    val cur = getLevel(i)
-                    if (cur < 0 || forceReset) {
-                        repeat(if (forceReset) 20 else 100) { sendIr(i, "down"); Thread.sleep(85) }
-                        setLevel(i, 0)
-                        repeat(level) { sendIr(i, "up"); Thread.sleep(160) }
-                    } else if (level > cur) {
-                        repeat(level - cur) { sendIr(i, "up"); Thread.sleep(160) }
-                    } else if (level < cur) {
-                        repeat(cur - level) { sendIr(i, "down"); Thread.sleep(160) }
-                    }
+                    repeat(if (longPress) 20 else 25) { sendIr(i, "down"); Thread.sleep(130) }
+                    Thread.sleep(400)
+                    repeat(level) { sendIr(i, "up"); Thread.sleep(160) }
                     setLevel(i, level)
                 }
                 runOnUiThread { Toast.makeText(this, "Volume set to $level", Toast.LENGTH_SHORT).show() }
@@ -300,11 +297,15 @@ class MainActivity : Activity() {
         return b
     }
 
-    private fun appButton(label: String, pkg: String): Button {
+    private fun appButton(label: String, pkg: String, altPkg: String? = null): Button {
         val b = makeButton(label, false, 15f)
+        val launch = "monkey -p $pkg -c android.intent.category.LAUNCHER 1"
+        val cmd = if (altPkg == null) launch else
+            "if pm path $pkg | grep -q package; then $launch; " +
+                "else monkey -p $altPkg -c android.intent.category.LAUNCHER 1; fi"
         b.setOnClickListener {
             haptic(it)
-            sendShell("monkey -p $pkg -c android.intent.category.LAUNCHER 1")
+            sendShell(cmd)
         }
         return b
     }
@@ -565,7 +566,7 @@ class MainActivity : Activity() {
         val apps = row(54)
         addTo(apps, appButton("Netflix", "com.netflix.ninja"))
         addTo(apps, appButton("YouTube", "com.amazon.firetv.youtube"))
-        addTo(apps, appButton("Prime", "com.amazon.avod"))
+        addTo(apps, appButton("Prime", "com.amazon.firebat", "com.amazon.avod"))
         root.addView(apps)
 
         // power
