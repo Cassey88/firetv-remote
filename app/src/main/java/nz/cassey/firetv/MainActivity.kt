@@ -153,7 +153,8 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             this.textSize = textSize
             stateListAnimator = null
-            background = if (accent) bg(ACCENT, ACCENT_PRESSED) else bg(BTN, BTN_PRESSED)
+            tag = accent
+            background = if (accent) bg(ACCENT, ACCENT_PRESSED) else bg(BTN, ACCENT)
         }
 
     private fun row(height: Int = 64): LinearLayout = LinearLayout(this).apply {
@@ -178,11 +179,14 @@ class MainActivity : Activity() {
     /** Turns a button blue for a moment after it is pressed, then back to normal. */
     private fun flashBlue(b: Button) {
         b.background = bg(ACCENT, ACCENT_PRESSED)
-        mainHandler.postDelayed({ b.background = bg(BTN, BTN_PRESSED) }, 700)
+        mainHandler.postDelayed({
+            b.background = if (b.tag == true) bg(ACCENT, ACCENT_PRESSED) else bg(BTN, ACCENT)
+        }, 700)
     }
 
     private fun haptic(v: View) {
         v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        if (v is Button) flashBlue(v)
     }
 
     private fun keyButton(label: String, keyCode: Int, accent: Boolean = false, repeat: Boolean = false, textSize: Float = 18f, shell: String? = null, irKind: String? = null, flash: Boolean = false): Button {
@@ -565,7 +569,7 @@ class MainActivity : Activity() {
         root.addView(sel)
 
         val playRow = row(96)
-        playBtn = makeButton("❚❚  Pause", true, 30f)
+        playBtn = makeButton("❚❚  Pause", false, 30f)
         playBtn.setTypeface(playBtn.typeface, Typeface.BOLD)
         playBtn.setOnClickListener {
             haptic(it)
@@ -590,7 +594,7 @@ class MainActivity : Activity() {
         addTo(r1, tvPowerButton(true)); addTo(r1, keyButton("▲", 19, repeat = true, textSize = 24f)); addTo(r1, tvPowerButton(false))
         val r2 = row(72)
         addTo(r2, keyButton("◀", 21, repeat = true, textSize = 24f))
-        addTo(r2, keyButton("OK", 23, true, textSize = 20f))
+        addTo(r2, keyButton("OK", 23, textSize = 20f))
         addTo(r2, keyButton("▶", 22, repeat = true, textSize = 24f))
         val r3 = row(72)
         addTo(r3, presetButton(10)); addTo(r3, keyButton("▼", 20, repeat = true, textSize = 24f)); addTo(r3, presetButton(20))
@@ -668,7 +672,7 @@ class MainActivity : Activity() {
         for (i in 0..1) {
             selectorButtons[i]?.apply {
                 text = tvName(i)
-                background = if (i == selected) bg(ACCENT, ACCENT_PRESSED) else bg(BTN, BTN_PRESSED)
+                background = if (i == selected) bg(ACCENT, ACCENT_PRESSED) else bg(BTN, ACCENT)
             }
         }
         refreshStatus()
