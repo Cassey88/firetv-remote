@@ -271,7 +271,7 @@ class MainActivity : Activity() {
                     }
                     val cur = getLevel(i)
                     if (cur < 0 || forceReset) {
-                        repeat(if (i == 1) 25 else 100) { sendIr(i, "down"); Thread.sleep(85) }
+                        repeat(if (forceReset) 20 else 100) { sendIr(i, "down"); Thread.sleep(85) }
                         setLevel(i, 0)
                         repeat(level) { sendIr(i, "up"); Thread.sleep(160) }
                     } else if (level > cur) {
@@ -291,6 +291,12 @@ class MainActivity : Activity() {
     private fun presetButton(level: Int): Button {
         val b = makeButton("Vol $level", false, 17f)
         b.setOnClickListener { haptic(it); setVolume(level) }
+        // long-press: count down 20 steps, then up to the level
+        b.setOnLongClickListener {
+            haptic(it)
+            setVolume(level, true)
+            true
+        }
         return b
     }
 
@@ -531,7 +537,7 @@ class MainActivity : Activity() {
         addTo(r2, keyButton("OK", 23, true, textSize = 20f))
         addTo(r2, keyButton("▶", 22, repeat = true, textSize = 24f))
         val r3 = row(72)
-        addTo(r3, presetButton(11)); addTo(r3, keyButton("▼", 20, repeat = true, textSize = 24f)); addTo(r3, presetButton(20))
+        addTo(r3, presetButton(10)); addTo(r3, keyButton("▼", 20, repeat = true, textSize = 24f)); addTo(r3, presetButton(20))
         root.addView(r1); root.addView(r2); root.addView(r3)
 
         // volume
