@@ -53,6 +53,7 @@ private const val ACCENT_PRESSED = 0xFF3399E6.toInt()
 private const val GREEN = 0xFF4CAF50.toInt()
 private const val RED = 0xFFE57373.toInt()
 private const val GREY = 0xFF9AA5B1.toInt()
+private const val GREEN_BTN = 0xFF2E7D32.toInt()
 
 class MainActivity : Activity() {
 
@@ -153,7 +154,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             this.textSize = textSize
             stateListAnimator = null
-            tag = accent
+            tag = if (accent) ACCENT else BTN
             background = if (accent) bg(ACCENT, ACCENT_PRESSED) else bg(BTN, ACCENT)
         }
 
@@ -180,7 +181,8 @@ class MainActivity : Activity() {
     private fun flashBlue(b: Button) {
         b.background = bg(ACCENT, ACCENT_PRESSED)
         mainHandler.postDelayed({
-            b.background = if (b.tag == true) bg(ACCENT, ACCENT_PRESSED) else bg(BTN, ACCENT)
+            val base = (b.tag as? Int) ?: BTN
+            b.background = if (base == ACCENT) bg(ACCENT, ACCENT_PRESSED) else bg(base, ACCENT)
         }, 700)
     }
 
@@ -333,7 +335,9 @@ class MainActivity : Activity() {
 
     private fun tvPowerButton(on: Boolean): Button {
         val b = makeButton(if (on) "TV On" else "TV Off", false, 16f)
-        b.setOnClickListener { haptic(it); flashBlue(b); tvPower(on) }
+        b.background = bg(GREEN_BTN, ACCENT)
+        b.tag = GREEN_BTN
+        b.setOnClickListener { haptic(it); tvPower(on) }
         return b
     }
 
